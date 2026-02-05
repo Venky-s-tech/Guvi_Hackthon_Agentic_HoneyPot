@@ -5,8 +5,8 @@ from datetime import datetime
 import requests
 
 app = Flask(__name__)
-VALID_API_KEY = os.getenv('API_KEY', 'test_key_123')
-GUVI_CALLBACK_URL = "https://hackathon.guvi.in/api/updateHoneyPotFinalResult"
+VALID_API_KEY = "test123456"  # Hardcoded for hackathon
+GUVI_CALLBACK_URL = "https://hackathon.guvi.in/api/updateHoneyPotFinalResult"  # NO SPACES!
 sessions = {}
 
 def require_api_key(f):
@@ -29,7 +29,7 @@ def health():
 @require_api_key
 def analyze():
     data = request.get_json()
-    if not data or 'sessionId' not in data or 'message' not in data:
+    if not data or 'sessionId' not in data or 'message' not in 
         return jsonify({'error': 'Missing required fields'}), 400
     
     if 'text' not in data['message']:
@@ -47,7 +47,6 @@ def analyze():
     
     session = sessions[session_id]
     
-    # Scam detection (simple but effective)
     if not session['scamDetected']:
         scam_keywords = ['blocked', 'suspended', 'urgent', 'verify account', 'upi id', 'transfer money', 'processing fee']
         if any(kw in text.lower() for kw in scam_keywords):
@@ -56,7 +55,6 @@ def analyze():
     if not session['scamDetected']:
         return jsonify({'status': 'success', 'reply': None}), 200
     
-    # Extract intelligence
     upi_matches = re.findall(r'[\w.-]+@(?:paytm|okicici|okaxis|ybl|oksbi|upi|axis|icici|sbi)', text, re.IGNORECASE)
     link_matches = re.findall(r'https?://[^\s]+', text)
     bank_matches = re.findall(r'\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}', text)
@@ -70,7 +68,6 @@ def analyze():
     
     session['messageCount'] += 1
     
-    # Send GUVI callback after extracting valuable intel OR after 5 messages
     valuable_intel = session['intelligence']['upiIds'] or session['intelligence']['phishingLinks'] or session['intelligence']['bankAccounts']
     should_callback = (valuable_intel and session['messageCount'] >= 2) or session['messageCount'] >= 5
     
@@ -93,7 +90,6 @@ def analyze():
         except:
             pass
     
-    # Human-like replies
     replies = [
         "Why is my account being blocked? I haven't done anything wrong.",
         "Can you please explain what happened to my account?",
@@ -110,4 +106,3 @@ def analyze():
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=False)
-
