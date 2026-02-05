@@ -19,71 +19,94 @@ def require_api_key(f):
 
 @app.route('/health', methods=['GET'])
 def health():
-    return jsonify({'status': 'healthy', 'active_sessions': len(sessions), 'timestamp': datetime.utcnow().isoformat()}), 200
+    return jsonify({
+        'status': 'healthy',
+        'active_sessions': len(sessions),
+        'timestamp': datetime.utcnow().isoformat()
+    }), 200
 
 @app.route('/analyze', methods=['POST'])
 @require_api_key
 def analyze():
     data = request.get_json()
-    if not data or 'sessionId' not in data or 'message' not in data or 'text' not in data['message']:
+    if not data or 'sessionId' not in data or 'message' not in data:
         return jsonify({'error': 'Missing required fields'}), 400
     
+    if 'text' not in data['message']:
+        return jsonify({'error': 'Missing message text'}), 400
+    
     session_id = data['sessionId']
-    text = data['message']['text'].lower()
+    text = data['message']['text']
     
     if session_id not in sessions:
-        sessions[session_id] = {'scamDetected': False, 'intel': {'upiIds': [], 'links': []}, 'count': 0}
+        sessions[session_id] = {
+            'scamDetected': False,
+            'intelligence': {'upiIds': [], 'phishingLinks': [], 'bankAccounts': []},
+            'messageCount': 0
+        }
     
     session = sessions[session_id]
     
-    # Simple scam detection
+    # Scam detection (simple but effective)
     if not session['scamDetected']:
-        if any(kw in text for kw in ['blocked', 'suspended', 'urgent', 'verify account', 'upi', 'transfer money']):
+        scam_keywords = ['blocked', 'suspended', 'urgent', 'verify account', 'upi id', 'transfer money', 'processing fee']
+        if any(kw in text.lower() for kw in scam_keywords):
             session['scamDetected'] = True
     
     if not session['scamDetected']:
         return jsonify({'status': 'success', 'reply': None}), 200
     
     # Extract intelligence
-    upi = re.findall(r'[\w.-]+@(?:paytm|okicici|okaxis|ybl|oksbi|upi)', text)
-    links = re.findall(r'https?://[^\s]+', text)
+    upi_matches = re.findall(r'[\w.-]+@(?:paytm|okicici|okaxis|ybl|oksbi|upi|axis|icici|sbi)', text, re.IGNORECASE)
+    link_matches = re.findall(r'https?://[^\s]+', text)
+    bank_matches = re.findall(r'\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}', text)
     
-    if upi:
-        session['intel']['upiIds'].extend(upi)
-    if links:
-        session['intel']['links'].extend(links)
+    if upi_matches:
+        session['intelligence']['upiIds'].extend(upi_matches)
+    if link_matches:
+        session['intelligence']['phishingLinks'].extend(link_matches)
+    if bank_matches:
+        session['intelligence']['bankAccounts'].extend(bank_matches)
     
-    session['count'] += 1
+    session['messageCount'] += 1
     
-    # Send callback after extracting valuable intel
-    if (upi or links) and session['count'] >= 2:
+    # Send GUVI callback after extracting valuable intel OR after 5 messages
+    valuable_intel = session['intelligence']['upiIds'] or session['intelligence']['phishingLinks'] or session['intelligence']['bankAccounts']
+    should_callback = (valuable_intel and session['messageCount'] >= 2) or session['messageCount'] >= 5
+    
+    if should_callback:
         try:
-            requests.post(GUVI_CALLBACK_URL, json={
+            callback_data = {
                 "sessionId": session_id,
                 "scamDetected": True,
-                "totalMessagesExchanged": session['count'],
+                "totalMessagesExchanged": session['messageCount'],
                 "extractedIntelligence": {
-                    "bankAccounts": [],
-                    "upiIds": list(set(session['intel']['upiIds'])),
-                    "phishingLinks": list(set(session['intel']['links'])),
+                    "bankAccounts": list(set(session['intelligence']['bankAccounts'])),
+                    "upiIds": list(set(session['intelligence']['upiIds'])),
+                    "phishingLinks": list(set(session['intelligence']['phishingLinks'])),
                     "phoneNumbers": [],
-                    "suspiciousKeywords": [kw for kw in ['urgent','verify','blocked'] if kw in text]
+                    "suspiciousKeywords": [kw for kw in ['urgent','verify','blocked','suspended','transfer','fee'] if kw in text.lower()]
                 },
-                "agentNotes": "Scammer attempted financial fraud"
-            }, timeout=3)
+                "agentNotes": "Scammer used urgency tactics to extract financial details"
+            }
+            requests.post(GUVI_CALLBACK_URL, json=callback_data, timeout=3)
         except:
             pass
     
     # Human-like replies
     replies = [
-        "Why is my account blocked? I haven't done anything wrong.",
-        "Can you explain what happened to my account?",
-        "I'm worried. How can I verify this is from the bank?",
-        "Okay, what should I do to fix this?",
-        "Is there a customer care number I can call?"
+        "Why is my account being blocked? I haven't done anything wrong.",
+        "Can you please explain what happened to my account?",
+        "I'm worried about this. How can I verify this is really from the bank?",
+        "Okay, what should I do to fix this issue?",
+        "I don't understand. Can you give me more details?",
+        "Is there a customer care number I can call to confirm?",
+        "I'm confused. Can you explain step by step what I need to do?"
     ]
     
-    return jsonify({'status': 'success', 'reply': replies[session['count'] % len(replies)]}), 200
+    reply = replies[session['messageCount'] % len(replies)]
+    return jsonify({'status': 'success', 'reply': reply}), 200
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=int(os.getenv('PORT', 5000)))
+    port = int(os.getenv('PORT', 5000))
+    app.run(host='0.0.0.0', port=port, debug=False)
