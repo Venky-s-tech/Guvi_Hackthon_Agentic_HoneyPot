@@ -13,7 +13,7 @@ app = Flask(__name__)
 
 # Configuration
 VALID_API_KEY = os.getenv('API_KEY', 'test_key_123')
-GUVI_CALLBACK_URL = "https://hackathon.guvi.in/api/updateHoneyPotFinalResult"  # NO TRAILING SPACES!
+GUVI_CALLBACK_URL = "https://hackathon.guvi.in/api/updateHoneyPotFinalResult"  
 
 # In-memory session storage
 sessions = {}
@@ -209,4 +209,5 @@ def get_session(session_id):
 
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 5000))
+
     app.run(host='0.0.0.0', port=port, debug=False)
